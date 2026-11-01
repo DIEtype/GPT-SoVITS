@@ -1,0 +1,73 @@
+# 声线工作室 / Voice Studio
+
+A Windows native WPF desktop interface for the existing GPT-SoVITS Windows engine package. It provides native file dialogs, drag-and-drop import, editable transcripts, training, synthesis, and portable voice presets without starting a browser or an API server. The interface is currently in Chinese. This directory is additive; the original WebUI remains available.
+
+## 使用前提
+
+- Windows x64，.NET Framework 4.5 或更新版本。
+- 已解压的 GPT-SoVITS Windows 整合包，包含 `runtime/python.exe`、`runtime/ffmpeg.exe`、`runtime/ffprobe.exe`、`api_v2.py`、Python 依赖及相应预训练模型。
+- 本版使用整合包的 `tools.portable_runtime.activate`。仅克隆源码不包含 Python 环境与模型，不能替代完整整合包。已经验证的环境为 2026-10-06 Windows 整合包。
+- 训练需要可用的 NVIDIA CUDA 显卡；自动识别依赖整合包内的本地普通话 ASR 模型。
+
+## 编译和运行
+
+在仓库根目录使用 PowerShell 执行：
+
+```powershell
+.\desktop\build.ps1
+```
+
+构建使用 Windows 自带的 .NET Framework C# 编译器，不需要 NuGet 下载或安装 .NET SDK。输出为 `desktop/dist/声线工作室.exe`。EXE 内嵌 XAML 和 Python 适配层；无需单独复制 `worker.py`。
+
+双击 EXE，点击左下角“设置引擎位置”，选择整合包根目录。程序也会在自身及附近目录查找引擎。请将应用放在可写目录，避免直接放入受保护的系统目录。
+
+也可以将构建结果复制到指定整合包旁，并初始化引擎路径：
+
+```powershell
+.\desktop\deploy.ps1 -EnginePath 'D:\Apps\GPT-SoVITS' -Destination 'D:\Apps\VoiceStudio'
+```
+
+安装脚本保留已有的 `settings.json`。运行中的旧版应用应先关闭。
+
+## 操作流程
+
+1. **选择素材**：原生文件对话框支持多选视频或录音，也支持拖入文件。
+2. **整理片段**：提取音轨、按停顿切分，逐条试听并选择保留的片段。
+3. **校对文字**：本地普通话识别，双击文字进行校对。
+4. **训练声音**：完成特征准备和 GPT / SoVITS 两阶段训练，支持 V2Pro 与 V4。
+5. **生成配音**：选择训练模型或 V5 Turbo 快速体验，填写新文稿，试听并导出 WAV。
+
+训练后仍需要 3～10 秒参考录音。程序会从已保留、已校对的训练片段中自动带入合适片段及原文，也可以试听和更换。参考录音影响语气、节奏和音色细节，不需要每次重新录制或训练。
+
+“保存音色”将推理模型、参考录音、原文及生成设置保存为 `.voicepack`；“导入音色”校验文件后复制到新的本地目录，并创建一个项目。快速体验模式只打包参考录音和设置。音色包不包含基础模型、Python 环境或训练优化器状态。
+
+## 切片与数据
+
+切片沿用原版 WebUI 的默认参数：`threshold=-34`、`min_length=4000`、`min_interval=300`、`hop_size=10`、`max_sil_kept=500`。不追加“超过 12 秒强制均分”“不足 1 秒丢弃”“低峰值丢弃”。原版仍按音量和停顿寻找切点，不能保证语义断句或保留所有轻声。
+
+每次整理使用独立目录，原始素材不被修改。重新整理会替换项目当前片段列表，建议用新项目重做素材以保留旧的校对结果。已有训练模型不会自动更新。
+
+项目、日志、配音与导入音色默认存放于应用目录上一级的 `Projects/`、`VoiceLibrary/`。配置存放于应用目录的 `settings.json`。这些本地数据不应提交到 Git。
+
+## 验证
+
+`VoiceStudio.cs` 内置以下开发验证入口。使用 PowerShell 的 `Start-Process -Wait` 等待桌面 EXE 退出，并检查退出码。
+
+- `--screenshots <output-folder>`：离屏渲染五个真实 WPF 页面，不保存项目。
+- `--reference-test <report.json>`：检查默认参考片段选择和用户设置保留。
+- `--native-test <project.json> <report.json>`：用真实媒体检查后台进程、内嵌适配层、结果读取和页面跳转；使用测试项目。
+- `--voicepack-test <trained-test-project.json> <report.json>`：检查训练音色打包、迁移、完整性校验和取消清理；使用测试模型。
+
+切片回归测试使用真实 WAV 文件，并逐段对照整合包原版切分器的输出：
+
+```powershell
+$engine = 'D:\Apps\GPT-SoVITS'
+& "$engine\runtime\python.exe" -X utf8 -B .\desktop\tests\test_slicing.py `
+  --engine $engine --worker .\desktop\worker.py --output .\desktop\qa\slicing
+```
+
+已做本机端到端验证：视频提取、切片、普通话 ASR、V2Pro 两阶段训练及保存模型后的语音生成。V4 是可选路线，未将 V2Pro 的测试结果当作 V4 全流程验证。音色包已验证换目录恢复及异常文件处理。生成质量仍需结合实际素材试听。
+
+## 范围
+
+当前识别和训练流程面向普通话；生成支持中、英、日、韩、粤语。本界面尚未集成人声与伴奏分离、语音转换或独立情绪控制。该模块的 MIT 许可沿用仓库根目录的 [LICENSE](../LICENSE)。

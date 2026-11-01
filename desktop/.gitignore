@@ -1,0 +1,12 @@
+/dist/
+/qa/
+/Projects/
+/VoiceLibrary/
+/internal/
+/settings.json
+__pycache__/
+*.pyc
+*.voicepack
+*.pth
+*.ckpt
+*.log

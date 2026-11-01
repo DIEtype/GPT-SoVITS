@@ -50,6 +50,10 @@
 
 ## 安装
 
+### 可选 Windows 原生桌面界面
+
+[声线工作室](../../desktop/README.md)提供文件选择器、拖放导入、视频提取与切片、文字校对、训练、配音及音色保存。它调用已有的 Windows 整合包，使用 `desktop/build.ps1` 编译 EXE；安装和验证方法见桌面版说明。
+
 中国地区的用户可[点击此处](https://www.codewithgpu.com/i/RVC-Boss/GPT-SoVITS/GPT-SoVITS-Official)使用 AutoDL 云端镜像进行体验.
 
 ### 测试通过的环境

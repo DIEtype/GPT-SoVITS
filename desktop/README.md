@@ -35,11 +35,21 @@ A Windows native WPF desktop interface for the existing GPT-SoVITS Windows engin
 2. **整理片段**：提取音轨、按停顿切分，逐条试听并选择保留的片段。
 3. **校对文字**：本地普通话识别，双击文字进行校对。
 4. **训练声音**：完成特征准备和 GPT / SoVITS 两阶段训练，支持 V2Pro 与 V4。
-5. **生成配音**：选择训练模型或 V5 Turbo 快速体验，填写新文稿，试听并导出 WAV。
+5. **生成配音**：选择已微调模型，或切换 V5 Turbo / V5 Dev 底模免训练合成，填写新文稿，试听并导出 WAV。
+
+### 微调与参考录音
+
+“微调”就是第 4 步的训练：用自己的录音和对应文字继续训练预训练模型，更新参数并保存新的 GPT / SoVITS 模型文件。第 5 步的参考录音只是生成时的输入，用于引导音色细节、语气与节奏，不会更新模型参数。
+
+训练底模目前支持 V2Pro 和 V4，训练页会记住选择，并提供前往 V5 Dev 免训练合成的入口。作者尚未验证 V5 的少样本微调，因此不提供会误导用户的 V5 训练选项。V4 的已训练权重不能通过切换选项升级为 V5。
+
+生成页的“不训练 · 使用 V5 底模”模式提供 V5 Turbo（4 步、CFG 0）和 V5 Dev（32 步、CFG 1.3）。Dev 更慢，面向研究和对比；选项会随项目保存。“使用已微调模型”始终加载项目原来的训练权重，此时底模选择框禁用。
+
+V4 官方版本发布日期为 [2025-04-22](https://github.com/RVC-Boss/GPT-SoVITS/releases/tag/20250422v4)；官方更新日志的 [2026-10-05 条目](https://github.com/RVC-Boss/GPT-SoVITS/blob/main/docs/cn/Changelog_CN.md#202610)记录 V5 新版本。微调能力和发布时间是不同问题，当前支持范围以[作者说明](https://github.com/RVC-Boss/GPT-SoVITS/wiki/GPT%E2%80%90SoVITS%E2%80%90features%28Latest%E2%80%90Including%E2%80%90v5%29)为准。
 
 训练后仍需要 3～10 秒参考录音。程序会从已保留、已校对的训练片段中自动带入合适片段及原文，也可以试听和更换。参考录音影响语气、节奏和音色细节，不需要每次重新录制或训练。
 
-“保存音色”将推理模型、参考录音、原文及生成设置保存为 `.voicepack`；“导入音色”校验文件后复制到新的本地目录，并创建一个项目。快速体验模式只打包参考录音和设置。音色包不包含基础模型、Python 环境或训练优化器状态。
+“保存音色”将推理模型、参考录音、原文及生成设置保存为 `.voicepack`；“导入音色”校验文件后复制到新的本地目录，并创建一个项目。免训练模式保存参考录音、原文与所选 V5 底模。V5 Dev 音色包使用格式 2，需要 1.3 或更新版本；原格式 1 的 Turbo 和已训练音色包仍可导入。音色包不包含基础模型、Python 环境或训练优化器状态。
 
 ## 切片与数据
 
@@ -55,6 +65,8 @@ A Windows native WPF desktop interface for the existing GPT-SoVITS Windows engin
 
 - `--screenshots <output-folder>`：离屏渲染五个真实 WPF 页面，不保存项目。
 - `--reference-test <report.json>`：检查默认参考片段选择和用户设置保留。
+- `--model-selection-test <report.json>`：检查旧项目默认值、模型选择持久化、请求路由及新旧音色包兼容。
+- `--model-ui-test <test-project.json> <output-folder>`：检查实际下拉框事件、跨页面保存、已有模型保留，并渲染训练、Dev 与已微调模型页面。
 - `--native-test <project.json> <report.json>`：用真实媒体检查后台进程、内嵌适配层、结果读取和页面跳转；使用测试项目。
 - `--voicepack-test <trained-test-project.json> <report.json>`：检查训练音色打包、迁移、完整性校验和取消清理；使用测试模型。
 
@@ -67,6 +79,8 @@ $engine = 'D:\Apps\GPT-SoVITS'
 ```
 
 已做本机端到端验证：视频提取、切片、普通话 ASR、V2Pro 两阶段训练及保存模型后的语音生成。V4 是可选路线，未将 V2Pro 的测试结果当作 V4 全流程验证。音色包已验证换目录恢复及异常文件处理。生成质量仍需结合实际素材试听。
+
+`desktop/tests/test_models.py` 不加载权重即可检查模型路由与采样参数。V5 Dev 已使用本机 Windows 引擎和合成参考录音验证 32 步、CFG 1.3 的实际音频生成。
 
 ## 范围
 

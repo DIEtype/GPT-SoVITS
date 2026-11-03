@@ -24,7 +24,7 @@ using Forms = System.Windows.Forms;
 
 [assembly: AssemblyTitle("声线工作室")]
 [assembly: AssemblyDescription("GPT-SoVITS 本地桌面工作流")]
-[assembly: AssemblyVersion("1.2.1.0")]
+[assembly: AssemblyVersion("1.3.0.0")]
 
 namespace VoiceStudio {
  public class Clip : INotifyPropertyChanged {
@@ -40,8 +40,17 @@ namespace VoiceStudio {
   public List<Clip> Clips {get;set;} public Dictionary<string,object> Trained {get;set;}
   public string ReferencePath {get;set;} public string ReferenceText {get;set;} public string TargetText {get;set;}
   public string LastOutput {get;set;}
+  public string QuickVersion {get;set;} public string TrainingVersion {get;set;}
   public int RefLanguage {get;set;} public int TextLanguage {get;set;} public double Speed {get;set;} public bool UseTrained {get;set;}
-  public Project(){Name="我的声音";Directory="";Sources=new List<string>();Clips=new List<Clip>();ReferencePath="";ReferenceText="";TargetText="";LastOutput="";Speed=1;}
+  public Project(){Name="我的声音";Directory="";Sources=new List<string>();Clips=new List<Clip>();ReferencePath="";ReferenceText="";TargetText="";LastOutput="";Speed=1;QuickVersion="v5turbo";TrainingVersion="v2Pro";}
+ }
+ public static class ModelSelection {
+  public static string BaseVersion(string value){return value=="v5dev"?"v5dev":"v5turbo";}
+  public static string Name(string value){return value=="v5dev"?"V5 Dev":value=="v5turbo"?"V5 Turbo":value=="v2Pro"?"V2Pro":value=="v4"?"V4":value??"";}
+  public static Dictionary<string,object> Request(Project value){
+   string[] languages={"zh","en","ja","ko","yue"};
+   return new Dictionary<string,object>{{"reference",value.ReferencePath},{"reference_text",value.ReferenceText},{"text",value.TargetText},{"ref_lang",languages[Math.Max(0,Math.Min(4,value.RefLanguage))]},{"text_lang",languages[Math.Max(0,Math.Min(4,value.TextLanguage))]},{"speed",value.Speed},{"use_trained",value.UseTrained&&value.Trained!=null},{"trained",value.Trained},{"quick_version",BaseVersion(value.QuickVersion)}};
+  }
  }
  public static class ReferenceDefaults {
   public static List<Clip> Eligible(IEnumerable<Clip> clips){return clips.Where(c=>c.Use && c.Duration>=3 && c.Duration<=10 && !string.IsNullOrWhiteSpace(c.Text) && File.Exists(c.Path)).OrderBy(c=>Math.Abs(c.Duration-6)).ThenBy(c=>c.Name,StringComparer.OrdinalIgnoreCase).ToList();}
@@ -69,7 +78,7 @@ namespace VoiceStudio {
   CancellationTokenSource fileCancellation; bool closingAfterCancel=false;
   TextBox nameBox,referenceBox,referenceText,targetText,sovitsEpochs,gptEpochs,batchBox;
   DateTime taskStarted;
-  ComboBox trainVersion,voiceMode,refLanguage,textLanguage; Slider speed;
+  ComboBox trainVersion,voiceMode,quickVersion,refLanguage,textLanguage; Slider speed; TextBlock modelHelp;
   DataGrid grid; TextBlock clipSummary; DispatcherTimer autosave;
   static readonly string[] Labels={"选择素材","整理片段","校对文字","训练声音","生成配音"};
   static readonly string[] Titles={"从一段视频或录音开始","挑出你想保留的声音","让文字与录音逐句对应","训练一个专属声音","让这个声音，说出新的内容"};
@@ -110,7 +119,7 @@ namespace VoiceStudio {
   void ChooseEngine(){if(busy){Notice("请先等待或停止当前任务。");return;}using(var picker=new Forms.FolderBrowserDialog()){picker.Description="选择包含 runtime、GPT_SoVITS 和 api_v2.py 的整合包文件夹";picker.SelectedPath=engine;if(picker.ShowDialog()!=Forms.DialogResult.OK)return;string before=engine;engine=picker.SelectedPath;if(!ValidEngine()){engine=before;Notice("这个文件夹中没有完整的 GPT-SoVITS 引擎，请选择解压后的整合包根目录。");return;}Settings();badge.Text="语音引擎已找到\n视频、录音在本机处理";status.Text="引擎位置已保存。";}}
   void EnsureProject(){if(!string.IsNullOrEmpty(project.Directory))return;string baseDir=Path.GetDirectoryName(appDir.TrimEnd(Path.DirectorySeparatorChar));if(string.IsNullOrEmpty(baseDir))baseDir=appDir;string folder=DateTime.Now.ToString("yyyyMMdd_HHmmss")+"_"+Guid.NewGuid().ToString("N").Substring(0,5);project.Directory=Path.Combine(baseDir,"Projects",folder);System.IO.Directory.CreateDirectory(project.Directory);SaveProject();Settings();}
   static void AtomicWrite(string path,string value){string temp=path+".tmp";File.WriteAllText(temp,value,new UTF8Encoding(false));if(File.Exists(path))File.Replace(temp,path,null);else File.Move(temp,path);}
-  void SyncDraft(){if(nameBox!=null && page==0){project.Name=string.IsNullOrWhiteSpace(nameBox.Text)?"我的声音":nameBox.Text.Trim();caption.Text=project.Name;}if(page==4){if(referenceBox!=null)project.ReferencePath=referenceBox.Text;if(referenceText!=null)project.ReferenceText=referenceText.Text;if(targetText!=null)project.TargetText=targetText.Text;if(refLanguage!=null)project.RefLanguage=refLanguage.SelectedIndex;if(textLanguage!=null)project.TextLanguage=textLanguage.SelectedIndex;if(speed!=null)project.Speed=speed.Value;if(voiceMode!=null)project.UseTrained=voiceMode.SelectedIndex==1;}}
+  void SyncDraft(){if(nameBox!=null && page==0){project.Name=string.IsNullOrWhiteSpace(nameBox.Text)?"我的声音":nameBox.Text.Trim();caption.Text=project.Name;}if(page==3&&trainVersion!=null)project.TrainingVersion=trainVersion.SelectedIndex==1?"v4":"v2Pro";if(page==4){if(referenceBox!=null)project.ReferencePath=referenceBox.Text;if(referenceText!=null)project.ReferenceText=referenceText.Text;if(targetText!=null)project.TargetText=targetText.Text;if(refLanguage!=null)project.RefLanguage=refLanguage.SelectedIndex;if(textLanguage!=null)project.TextLanguage=textLanguage.SelectedIndex;if(speed!=null)project.Speed=speed.Value;if(voiceMode!=null)project.UseTrained=voiceMode.SelectedIndex==1;if(quickVersion!=null)project.QuickVersion=quickVersion.SelectedIndex==1?"v5dev":"v5turbo";}}
   void SaveProject(){if(smoke || string.IsNullOrEmpty(project.Directory))return;try{project.Clips=clips.ToList();AtomicWrite(Path.Combine(project.Directory,"project.json"),json.Serialize(project));}catch(Exception e){Log("项目保存失败："+e.Message);}}
   void LoadProject(string path){project=json.Deserialize<Project>(File.ReadAllText(path,Encoding.UTF8));if(project==null)throw new Exception("项目文件为空");project.Directory=Path.GetDirectoryName(Path.GetFullPath(path));if(project.Sources==null)project.Sources=new List<string>();clips=new ObservableCollection<Clip>(project.Clips??new List<Clip>());page=-1;}
   void OpenProject(){if(busy){Notice("请先等待或停止当前任务。");return;}OpenFileDialog d=new OpenFileDialog(){Title="打开声音项目",Filter="声音项目 (project.json)|project.json|JSON 文件|*.json"};if(d.ShowDialog(window)!=true)return;try{SyncDraft();SaveProject();LoadProject(d.FileName);Settings();Go(project.Trained!=null && project.UseTrained?4:clips.Count>0?2:0);}catch(Exception e){Notice("项目读取失败："+e.Message);}}
@@ -124,7 +133,7 @@ namespace VoiceStudio {
   void Label(string value){host.Children.Add(Text(value,13,"#233E60"));}
   void Hint(string value){Border b=new Border(){Background=Color("#F0F5FD"),CornerRadius=new CornerRadius(7),Padding=new Thickness(14),Margin=new Thickness(0,8,0,16)};TextBlock t=Text(value,12);t.Margin=new Thickness(0);b.Child=t;host.Children.Add(b);}
   void Go(int index){
-   SyncDraft();SaveProject();player.Stop();page=index;host.Children.Clear();nameBox=null;referenceBox=null;referenceText=null;targetText=null;grid=null;clipSummary=null;
+   SyncDraft();SaveProject();player.Stop();page=index;host.Children.Clear();nameBox=null;referenceBox=null;referenceText=null;targetText=null;grid=null;clipSummary=null;trainVersion=null;quickVersion=null;modelHelp=null;
    title.Text=Titles[index];subtitle.Text=Descriptions[index];caption.Text=project.Name;
    for(int i=0;i<5;i++){navButtons[i].Background=Color(i==index?"#E8F0FF":"#FFFFFF");navButtons[i].Foreground=Color(i==index?"#2258BD":"#667D97");navButtons[i].FontWeight=i==index?FontWeights.SemiBold:FontWeights.Normal;}
    if(index==0)PageImport();if(index==1)PageClips(false);if(index==2)PageClips(true);if(index==3)PageTrain();if(index==4)PageGenerate();host.IsEnabled=!busy;
@@ -166,14 +175,16 @@ namespace VoiceStudio {
    var selected=clips.Where(c=>c.Use).ToList();int missing=selected.Count(c=>string.IsNullOrWhiteSpace(c.Text));
    host.Children.Add(Text(string.Format("已保留 {0} 条录音，共 {1:0.0} 分钟",selected.Count,selected.Sum(c=>c.Duration)/60),20,"#233E60"));
    host.Children.Add(Text(missing==0 && selected.Count>=2?"文字已准备好，可以开始训练。":"请先完成录音筛选和文字校对。至少需要两条带有文字的录音。",13,missing==0 && selected.Count>=2?"#167B73":"#A56B24"));
-   Label("训练方式");trainVersion=new ComboBox(){Width=370,HorizontalAlignment=HorizontalAlignment.Left,Margin=new Thickness(0,0,0,16)};trainVersion.Items.Add("V2Pro · 日常录音与视频素材（推荐）");trainVersion.Items.Add("V4 · 高音质、清晰的录音素材");trainVersion.SelectedIndex=0;host.Children.Add(trainVersion);
-   Hint("点击一次，依次完成：准备特征 → 训练音色 → 训练语音表达。过程会使用显卡，进度和当前步骤会显示在下方。");
+   Label("训练底模（微调）");trainVersion=new ComboBox(){Width=370,HorizontalAlignment=HorizontalAlignment.Left,Margin=new Thickness(0,0,0,16)};trainVersion.Items.Add("V2Pro · 日常录音与视频素材（推荐）");trainVersion.Items.Add("V4 · 高音质、清晰的录音素材");trainVersion.SelectedIndex=project.TrainingVersion=="v4"?1:0;host.Children.Add(trainVersion);
+   Hint("微调：用录音和对应文字继续训练底模，保存新的声音模型。流程为准备特征 → 训练音色 → 训练语音表达。生成页的示例录音只引导本次配音，不会更新模型。");
    Expander advanced=new Expander(){Header="调整训练参数",Margin=new Thickness(0,0,0,20)};StackPanel settings=new StackPanel(){Margin=new Thickness(0,12,0,0)};
    settings.Children.Add(Text("首次训练可以使用默认值。显存不足时，将批次大小改为 2。",12));
-   sovitsEpochs=Input("8");gptEpochs=Input("15");batchBox=Input("4");
+   sovitsEpochs=Input(trainVersion.SelectedIndex==1?"2":"8");gptEpochs=Input("15");batchBox=Input("4");
    settings.Children.Add(Text("音色训练轮数",12));settings.Children.Add(sovitsEpochs);settings.Children.Add(Text("语音表达训练轮数",12));settings.Children.Add(gptEpochs);settings.Children.Add(Text("每批处理条数",12));settings.Children.Add(batchBox);advanced.Content=settings;host.Children.Add(advanced);
    trainVersion.SelectionChanged+=(s,e)=>{sovitsEpochs.Text=trainVersion.SelectedIndex==1?"2":"8";};
    host.Children.Add(Row(Button("开始训练声音",StartTraining,true),Button("返回校对",()=>Go(2))));
+   host.Children.Add(Text("V5 Dev / Turbo 目前用于免训练合成，作者尚未验证少样本微调。可以直接用参考录音体验。",12));
+   host.Children.Add(Button("使用 V5 Dev 底模（不训练） →",()=>{project.UseTrained=false;project.QuickVersion="v5dev";Go(4);}));
    if(project.Trained!=null){host.Children.Add(Text("这个项目已有训练完成的声音。",13,"#167B73"));host.Children.Add(Button("使用已训练声音生成配音 →",()=>Go(4)));}
   }
   int Number(TextBox box,int minimum,int maximum){int value;if(!int.TryParse(box.Text,out value)||value<minimum||value>maximum)throw new Exception("训练参数需要是 "+minimum+"～"+maximum+" 之间的整数。");return value;}
@@ -182,8 +193,12 @@ namespace VoiceStudio {
   string Language(ComboBox c){return new[]{"zh","en","ja","ko","yue"}[Math.Max(0,c.SelectedIndex)];}
   void PageGenerate(){
    if(project.Trained!=null && project.UseTrained)ReferenceDefaults.Apply(project,clips);
-   voiceMode=new ComboBox(){Width=350,HorizontalAlignment=HorizontalAlignment.Left,Margin=new Thickness(0,0,12,0)};voiceMode.Items.Add("快速体验 · 使用参考录音的声音");if(project.Trained!=null)voiceMode.Items.Add("使用这个项目训练完成的声音");voiceMode.SelectedIndex=project.Trained!=null && project.UseTrained?1:0;var voiceActions=new WrapPanel(){Margin=new Thickness(0,0,0,15)};voiceActions.Children.Add(voiceMode);voiceActions.Children.Add(Button("保存音色…",()=>VoiceFileOperation(true)));voiceActions.Children.Add(Button("导入音色…",()=>VoiceFileOperation(false)));host.Children.Add(voiceActions);
+   voiceMode=new ComboBox(){Width=270,HorizontalAlignment=HorizontalAlignment.Left,Margin=new Thickness(0,0,12,0)};voiceMode.Items.Add("不训练 · 使用 V5 底模");if(project.Trained!=null)voiceMode.Items.Add("使用已微调模型 · "+ModelSelection.Name(Convert.ToString(project.Trained["version"])));voiceMode.SelectedIndex=project.Trained!=null && project.UseTrained?1:0;
+   quickVersion=new ComboBox(){Width=215,Margin=new Thickness(0,0,12,0),ToolTip="免训练合成底模；已有微调模型仍使用其原版本"};quickVersion.Items.Add("V5 Turbo · 快速合成");quickVersion.Items.Add("V5 Dev · 较慢 / 研究用途");quickVersion.SelectedIndex=ModelSelection.BaseVersion(project.QuickVersion)=="v5dev"?1:0;
+   var voiceActions=new WrapPanel(){Margin=new Thickness(0,0,0,10)};voiceActions.Children.Add(voiceMode);voiceActions.Children.Add(quickVersion);voiceActions.Children.Add(Button("保存音色…",()=>VoiceFileOperation(true)));voiceActions.Children.Add(Button("导入音色…",()=>VoiceFileOperation(false)));host.Children.Add(voiceActions);
+   modelHelp=Text("",12);modelHelp.Margin=new Thickness(0,0,0,12);host.Children.Add(modelHelp);
    voiceMode.SelectionChanged+=(s,e)=>{project.UseTrained=voiceMode.SelectedIndex==1;if(project.UseTrained && ReferenceDefaults.Apply(project,clips)){referenceBox.Text=project.ReferencePath;referenceText.Text=project.ReferenceText;refLanguage.SelectedIndex=0;}GenerationHelp();SaveProject();};
+   quickVersion.SelectionChanged+=(s,e)=>{SyncDraft();GenerationHelp();SaveProject();};
    Grid columns=new Grid(){Margin=new Thickness(0,0,0,12)};columns.ColumnDefinitions.Add(new ColumnDefinition());columns.ColumnDefinitions.Add(new ColumnDefinition(){Width=new GridLength(24)});columns.ColumnDefinitions.Add(new ColumnDefinition());
    StackPanel left=new StackPanel(),right=new StackPanel();Grid.SetColumn(right,2);columns.Children.Add(left);columns.Children.Add(right);host.Children.Add(columns);
    left.Children.Add(Text("本次配音的示例录音 · 3～10 秒",13,"#233E60"));referenceBox=Input(project.ReferencePath);referenceBox.IsReadOnly=true;referenceBox.ToolTip=project.ReferencePath;left.Children.Add(referenceBox);var refButtons=new WrapPanel(){Margin=new Thickness(0,0,0,8)};refButtons.Children.Add(Button("浏览录音…",PickReference));refButtons.Children.Add(Button("▶ 试听",()=>Play(referenceBox.Text)));if(clips.Count>0)refButtons.Children.Add(Button("从训练片段选…",PickTrainingReference));left.Children.Add(refButtons);
@@ -194,7 +209,7 @@ namespace VoiceStudio {
    if(!string.IsNullOrEmpty(project.LastOutput))host.Children.Add(Text("最近保存："+project.LastOutput,11,"#167B73"));
    GenerationHelp();
   }
-  void GenerationHelp(){if(voiceMode.SelectedIndex==1){bool fromTraining=clips.Any(c=>string.Equals(c.Path,referenceBox.Text,StringComparison.OrdinalIgnoreCase));subtitle.Text=fromTraining && !string.IsNullOrWhiteSpace(referenceText.Text)?"已从训练片段带入示例录音和文字，直接填写右侧新文稿即可。示例录音用于引导本次语气和节奏，可试听或更换。":"使用已训练的声音；示例录音用于引导本次语气和节奏，可以从训练片段中选择，无需重新录制。";}else subtitle.Text="选择一段示例录音并填写原话，再输入新的文稿。也可以切换到已经训练好的声音。";}
+  void GenerationHelp(){bool trained=voiceMode.SelectedIndex==1;quickVersion.IsEnabled=!trained;if(trained){bool fromTraining=clips.Any(c=>string.Equals(c.Path,referenceBox.Text,StringComparison.OrdinalIgnoreCase));subtitle.Text=fromTraining && !string.IsNullOrWhiteSpace(referenceText.Text)?"已带入训练片段和文字，填写右侧新文稿即可。示例录音影响本次音色细节、语气和节奏。":"使用已微调的声音；可以复用训练片段作为示例录音，无需重新录制。";modelHelp.Text="当前使用 "+ModelSelection.Name(Convert.ToString(project.Trained["version"]))+" 微调模型。V5 底模选择仅用于免训练合成，不会转换已有模型。";}else{subtitle.Text="选择示例录音并填写原话，再输入新文稿。这个过程直接合成，不会训练或修改模型。";modelHelp.Text=quickVersion.SelectedIndex==1?"V5 Dev：32 步合成，速度较慢，面向研究和对比试听；使用参考录音，不需要训练。":"V5 Turbo：4 步快速合成；使用参考录音，不需要训练。";}}
   void PickReference(){OpenFileDialog d=new OpenFileDialog(){Title="选择 3～10 秒的示例录音",Filter="录音文件|*.wav;*.mp3;*.m4a;*.flac;*.ogg;*.aac|所有文件|*.*"};if(d.ShowDialog(window)==true){Clip known=clips.FirstOrDefault(c=>string.Equals(c.Path,d.FileName,StringComparison.OrdinalIgnoreCase));if(!string.Equals(referenceBox.Text,d.FileName,StringComparison.OrdinalIgnoreCase)){referenceText.Text=known==null?"":known.Text??"";}referenceBox.Text=d.FileName;referenceBox.ToolTip=d.FileName;SyncDraft();EnsureProject();SaveProject();GenerationHelp();}}
   void PickTrainingReference(){
    var choices=ReferenceDefaults.Eligible(clips);if(choices.Count==0){Notice("当前没有带文字、时长在 3～10 秒之间的保留片段。可以浏览其他录音，或先在校对页整理一条合适的片段。");return;}
@@ -207,7 +222,7 @@ namespace VoiceStudio {
    Action select=()=>{var item=list.SelectedItem as ListBoxItem;if(item==null)return;Clip clip=(Clip)item.Tag;referenceBox.Text=clip.Path;referenceBox.ToolTip=clip.Path;referenceText.Text=clip.Text;refLanguage.SelectedIndex=0;SyncDraft();SaveProject();GenerationHelp();picker.Close();};
    StackPanel actions=Row(Button("▶ 试听选中片段",()=>{var item=list.SelectedItem as ListBoxItem;if(item!=null)Play(((Clip)item.Tag).Path);}),Button("使用这条录音",select,true));Grid.SetRow(actions,2);layout.Children.Add(actions);list.MouseDoubleClick+=(s,e)=>select();picker.Closed+=(s,e)=>player.Stop();picker.ShowDialog();
   }
-  void Generate(){SyncDraft();if(project.UseTrained && ReferenceDefaults.Apply(project,clips)){referenceBox.Text=project.ReferencePath;referenceText.Text=project.ReferenceText;refLanguage.SelectedIndex=0;SaveProject();GenerationHelp();}if(string.IsNullOrWhiteSpace(project.TargetText)){Notice("请在右侧填写需要生成的新配音文字。");targetText.Focus();return;}if(string.IsNullOrWhiteSpace(project.ReferencePath)){Notice("请选择一段 3～10 秒的示例录音，可以点击“从训练片段选”直接复用已有录音。");return;}if(string.IsNullOrWhiteSpace(project.ReferenceText)){Notice("请填写左侧示例录音中实际说出的文字。选择训练片段时会自动带入。");referenceText.Focus();return;}RunJob("synthesize",new Dictionary<string,object>{{"reference",project.ReferencePath},{"reference_text",project.ReferenceText},{"text",project.TargetText},{"ref_lang",Language(refLanguage)},{"text_lang",Language(textLanguage)},{"speed",speed.Value},{"use_trained",voiceMode.SelectedIndex==1},{"trained",project.Trained}});}
+  void Generate(){SyncDraft();if(project.UseTrained && ReferenceDefaults.Apply(project,clips)){referenceBox.Text=project.ReferencePath;referenceText.Text=project.ReferenceText;refLanguage.SelectedIndex=0;SaveProject();GenerationHelp();}if(string.IsNullOrWhiteSpace(project.TargetText)){Notice("请在右侧填写需要生成的新配音文字。");targetText.Focus();return;}if(string.IsNullOrWhiteSpace(project.ReferencePath)){Notice("请选择一段 3～10 秒的示例录音，可以点击“从训练片段选”直接复用已有录音。");return;}if(string.IsNullOrWhiteSpace(project.ReferenceText)){Notice("请填写左侧示例录音中实际说出的文字。选择训练片段时会自动带入。");referenceText.Focus();return;}RunJob("synthesize",ModelSelection.Request(project));}
   void Export(){if(!File.Exists(project.LastOutput)){Notice("请先生成一段配音。");return;}SaveFileDialog d=new SaveFileDialog(){Title="导出配音",Filter="WAV 音频|*.wav",FileName=Path.GetFileName(project.LastOutput)};if(d.ShowDialog(window)==true){try{if(Path.GetFullPath(d.FileName)!=Path.GetFullPath(project.LastOutput))File.Copy(project.LastOutput,d.FileName,true);status.Text="配音已导出："+d.FileName;}catch(Exception e){Notice("导出失败："+e.Message);}}}
   void CheckReferenceDuration(string path){
    string executable=Path.Combine(engine,"runtime","ffprobe.exe");if(!File.Exists(executable))throw new InvalidDataException("请先在设置中选择完整的语音引擎。");var start=new ProcessStartInfo(executable,"-v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "+Quote(path)){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};using(var probe=Process.Start(start)){string output=probe.StandardOutput.ReadToEnd();string errors=probe.StandardError.ReadToEnd();probe.WaitForExit();double duration;if(probe.ExitCode!=0||!double.TryParse(output.Trim(),NumberStyles.Float,CultureInfo.InvariantCulture,out duration))throw new InvalidDataException("无法读取示例录音，请换一段能正常播放的录音。");if(duration<3||duration>10)throw new InvalidDataException("保存音色的示例录音需要在 3～10 秒之间，当前为 "+duration.ToString("0.0")+" 秒。");}}
@@ -268,6 +283,34 @@ namespace VoiceStudio {
    for(int i=0;i<5;i++){Go(i);window.UpdateLayout();FrameworkElement visual=(FrameworkElement)window.Content;var target=new RenderTargetBitmap((int)visual.ActualWidth,(int)visual.ActualHeight,96,96,PixelFormats.Pbgra32);target.Render(visual);var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(target));using(var stream=File.Create(Path.Combine(folder,"screen_"+(i+1)+".png")))encoder.Save(stream);}
    window.Close();
   }
+  void RenderCurrentPage(string path){window.UpdateLayout();FrameworkElement visual=(FrameworkElement)window.Content;var target=new RenderTargetBitmap((int)visual.ActualWidth,(int)visual.ActualHeight,96,96,PixelFormats.Pbgra32);target.Render(visual);var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(target));using(var stream=File.Create(path))encoder.Save(stream);}
+  void ModelUiTest(string projectFile,string folder){
+   System.IO.Directory.CreateDirectory(folder);LoadProject(projectFile);Go(4);window.WindowStartupLocation=WindowStartupLocation.Manual;window.Left=-5000;window.Top=-5000;window.ShowInTaskbar=false;window.Show();
+   var checks=new Dictionary<string,bool>();string models=json.Serialize(project.Trained);string draft=project.TargetText;
+   voiceMode.SelectedIndex=0;quickVersion.SelectedIndex=1;Go(3);trainVersion.SelectedIndex=1;Go(4);
+   checks["dev_selection_survives_navigation"]=quickVersion.SelectedIndex==1&&Convert.ToString(ModelSelection.Request(project)["quick_version"])=="v5dev";
+   voiceMode.SelectedIndex=1;checks["trained_mode_disables_base_choice"]=!quickVersion.IsEnabled&&(bool)ModelSelection.Request(project)["use_trained"];
+   checks["trained_weights_unchanged"]=models==json.Serialize(project.Trained);RenderCurrentPage(Path.Combine(folder,"trained.png"));
+   voiceMode.SelectedIndex=0;checks["base_mode_restores_dev_choice"]=quickVersion.IsEnabled&&quickVersion.SelectedIndex==1&&!(bool)ModelSelection.Request(project)["use_trained"];
+   checks["new_text_preserved"]=project.TargetText==draft;RenderCurrentPage(Path.Combine(folder,"dev.png"));
+   Go(3);checks["training_choice_survives_navigation"]=trainVersion.SelectedIndex==1;RenderCurrentPage(Path.Combine(folder,"training.png"));
+   File.WriteAllText(Path.Combine(folder,"report.json"),json.Serialize(new{success=checks.Values.All(v=>v),checks=checks}),new UTF8Encoding(false));Environment.ExitCode=checks.Values.All(v=>v)?0:1;window.Close();
+  }
+  static void TestModelSelection(string report){
+   var serializer=new JavaScriptSerializer(){MaxJsonLength=32*1024*1024};var checks=new Dictionary<string,bool>();string dir=Path.Combine(Path.GetDirectoryName(Path.GetFullPath(report)),"model_fixtures");System.IO.Directory.CreateDirectory(dir);
+   Project old=serializer.Deserialize<Project>("{\"Name\":\"old\",\"UseTrained\":false}");checks["old_project_defaults_to_turbo"]=Convert.ToString(ModelSelection.Request(old)["quick_version"])=="v5turbo";
+   string reference=Path.Combine(dir,"reference.wav");File.WriteAllBytes(reference,new byte[]{1,2,3,4});
+   Project selected=new Project(){QuickVersion="v5dev",TrainingVersion="v4",ReferencePath=reference,ReferenceText="测试参考文字。",TargetText="新的配音稿。",Trained=new Dictionary<string,object>{{"version","v4"}}};
+   var request=ModelSelection.Request(selected);checks["dev_request_uses_base_mode"]=(string)request["quick_version"]=="v5dev"&&!(bool)request["use_trained"];
+   Project restored=serializer.Deserialize<Project>(serializer.Serialize(selected));checks["project_restores_model_choices"]=restored.QuickVersion=="v5dev"&&restored.TrainingVersion=="v4";
+   selected.UseTrained=true;request=ModelSelection.Request(selected);checks["trained_request_keeps_original_weights"]=(bool)request["use_trained"]&&object.ReferenceEquals(request["trained"],selected.Trained)&&Convert.ToString(selected.Trained["version"])=="v4";
+   selected.UseTrained=false;string dev=Path.Combine(dir,"dev.voicepack");VoicePackage.Export(selected,dev,CancellationToken.None,null);Project imported=VoicePackage.Import(dev,Path.Combine(dir,"library"),CancellationToken.None,null);checks["dev_preset_roundtrip"]=!imported.UseTrained&&imported.QuickVersion=="v5dev"&&imported.ReferenceText==selected.ReferenceText;
+   using(var zip=System.IO.Compression.ZipFile.OpenRead(dev))using(var reader=new StreamReader(zip.GetEntry("voice.json").Open()))checks["dev_preset_requires_new_reader"]=serializer.Deserialize<VoiceManifest>(reader.ReadToEnd()).FormatVersion==2;
+   string unknown=Path.Combine(dir,"unknown.voicepack");File.Copy(dev,unknown,true);using(var zip=System.IO.Compression.ZipFile.Open(unknown,System.IO.Compression.ZipArchiveMode.Update)){var entry=zip.GetEntry("voice.json");VoiceManifest manifest;using(var reader=new StreamReader(entry.Open()))manifest=serializer.Deserialize<VoiceManifest>(reader.ReadToEnd());manifest.ModelVersion="unknown";entry.Delete();using(var writer=new StreamWriter(zip.CreateEntry("voice.json").Open()))writer.Write(serializer.Serialize(manifest));}try{VoicePackage.Import(unknown,Path.Combine(dir,"library"),CancellationToken.None,null);checks["unknown_base_preset_rejected"]=false;}catch(InvalidDataException){checks["unknown_base_preset_rejected"]=true;}
+   selected.QuickVersion="v5turbo";string turbo=Path.Combine(dir,"turbo.voicepack");VoicePackage.Export(selected,turbo,CancellationToken.None,null);imported=VoicePackage.Import(turbo,Path.Combine(dir,"library"),CancellationToken.None,null);checks["legacy_turbo_preset_supported"]=imported.QuickVersion=="v5turbo"&&!imported.UseTrained;
+   string sovits=Path.Combine(dir,"voice.pth"),gpt=Path.Combine(dir,"speech.ckpt");File.WriteAllBytes(sovits,new byte[]{4,5,6});File.WriteAllBytes(gpt,new byte[]{7,8,9});selected.Trained["sovits"]=sovits;selected.Trained["gpt"]=gpt;selected.UseTrained=true;string trained=Path.Combine(dir,"trained.voicepack");VoicePackage.Export(selected,trained,CancellationToken.None,null);imported=VoicePackage.Import(trained,Path.Combine(dir,"library"),CancellationToken.None,null);checks["legacy_trained_preset_supported"]=imported.UseTrained&&Convert.ToString(imported.Trained["version"])=="v4"&&imported.TrainingVersion=="v4";
+   bool success=checks.Values.All(v=>v);File.WriteAllText(report,serializer.Serialize(new{success=success,checks=checks}),new UTF8Encoding(false));Environment.ExitCode=success?0:1;
+  }
   static void TestReferenceDefaults(string report,string actualProject){
    var serializer=new JavaScriptSerializer(){MaxJsonLength=32*1024*1024};string dir=Path.Combine(Path.GetDirectoryName(Path.GetFullPath(report)),"reference_fixtures");System.IO.Directory.CreateDirectory(dir);
    string a=Path.Combine(dir,"a.wav"),b=Path.Combine(dir,"b.wav"),external=Path.Combine(dir,"external.wav");foreach(string p in new[]{a,b,external})File.WriteAllBytes(p,new byte[]{0});
@@ -289,18 +332,20 @@ namespace VoiceStudio {
    checks["models_relocated"]=File.Exists(Convert.ToString(imported.Trained["sovits"]))&&File.Exists(Convert.ToString(imported.Trained["gpt"]))&&Convert.ToString(imported.Trained["sovits"]).StartsWith(dir,StringComparison.OrdinalIgnoreCase);
    checks["source_project_not_changed"]=source.TargetText=="保留文稿"&&File.Exists(Convert.ToString(source.Trained["sovits"]));
    string canceled=Path.Combine(dir,"canceled.voicepack");using(var stop=new CancellationTokenSource()){stop.Cancel();try{VoicePackage.Export(source,canceled,stop.Token,null);checks["canceled_export_leaves_no_file"]=false;}catch(OperationCanceledException){checks["canceled_export_leaves_no_file"]=!File.Exists(canceled)&&!System.IO.Directory.GetFiles(dir,"canceled.voicepack.partial-*").Any();}}
-   string invalid=Path.Combine(dir,"unsafe.voicepack");using(var stream=File.Create(invalid))using(var zip=new System.IO.Compression.ZipArchive(stream,System.IO.Compression.ZipArchiveMode.Create)){var entry=zip.CreateEntry("voice.json");using(var writer=new StreamWriter(entry.Open()))writer.Write(serializer.Serialize(new VoiceManifest(){FormatVersion=1,Mode="reference",Name="invalid",ReferenceFile="../escape.wav",ReferenceText="文字",Files=new List<VoiceFile>()}));}try{VoicePackage.Import(invalid,Path.Combine(dir,"unsafe_library"),CancellationToken.None,null);checks["unsafe_path_rejected"]=false;}catch(InvalidDataException){checks["unsafe_path_rejected"]=!File.Exists(Path.Combine(dir,"escape.wav"));}
-   string corrupt=Path.Combine(dir,"corrupt.voicepack");using(var stream=File.Create(corrupt))using(var zip=new System.IO.Compression.ZipArchive(stream,System.IO.Compression.ZipArchiveMode.Create)){var entry=zip.CreateEntry("voice.json");using(var writer=new StreamWriter(entry.Open()))writer.Write(serializer.Serialize(new VoiceManifest(){FormatVersion=1,Mode="reference",Name="corrupt",ReferenceFile="reference.wav",ReferenceText="文字",Files=new List<VoiceFile>{new VoiceFile(){Path="reference.wav",Bytes=3,Sha256=new string('0',64)}}}));using(var audio=zip.CreateEntry("reference.wav").Open())audio.Write(new byte[]{1,2,3},0,3);}string corruptLibrary=Path.Combine(dir,"corrupt_library");try{VoicePackage.Import(corrupt,corruptLibrary,CancellationToken.None,null);checks["corrupt_file_rejected_and_cleaned"]=false;}catch(InvalidDataException){checks["corrupt_file_rejected_and_cleaned"]=!System.IO.Directory.Exists(corruptLibrary)||System.IO.Directory.GetDirectories(corruptLibrary).Length==0;}
+   string invalid=Path.Combine(dir,"unsafe.voicepack");using(var stream=File.Create(invalid))using(var zip=new System.IO.Compression.ZipArchive(stream,System.IO.Compression.ZipArchiveMode.Create)){var entry=zip.CreateEntry("voice.json");using(var writer=new StreamWriter(entry.Open()))writer.Write(serializer.Serialize(new VoiceManifest(){FormatVersion=1,Mode="reference",ModelVersion="v5turbo",Name="invalid",ReferenceFile="../escape.wav",ReferenceText="文字",Files=new List<VoiceFile>()}));}try{VoicePackage.Import(invalid,Path.Combine(dir,"unsafe_library"),CancellationToken.None,null);checks["unsafe_path_rejected"]=false;}catch(InvalidDataException){checks["unsafe_path_rejected"]=!File.Exists(Path.Combine(dir,"escape.wav"));}
+   string corrupt=Path.Combine(dir,"corrupt.voicepack");using(var stream=File.Create(corrupt))using(var zip=new System.IO.Compression.ZipArchive(stream,System.IO.Compression.ZipArchiveMode.Create)){var entry=zip.CreateEntry("voice.json");using(var writer=new StreamWriter(entry.Open()))writer.Write(serializer.Serialize(new VoiceManifest(){FormatVersion=1,Mode="reference",ModelVersion="v5turbo",Name="corrupt",ReferenceFile="reference.wav",ReferenceText="文字",Files=new List<VoiceFile>{new VoiceFile(){Path="reference.wav",Bytes=3,Sha256=new string('0',64)}}}));using(var audio=zip.CreateEntry("reference.wav").Open())audio.Write(new byte[]{1,2,3},0,3);}string corruptLibrary=Path.Combine(dir,"corrupt_library");try{VoicePackage.Import(corrupt,corruptLibrary,CancellationToken.None,null);checks["corrupt_file_rejected_and_cleaned"]=false;}catch(InvalidDataException){checks["corrupt_file_rejected_and_cleaned"]=!System.IO.Directory.Exists(corruptLibrary)||System.IO.Directory.GetDirectories(corruptLibrary).Length==0;}
    bool success=checks.Values.All(v=>v);File.WriteAllText(report,serializer.Serialize(new{success=success,checks=checks,package_bytes=new FileInfo(package).Length,package=package}),new UTF8Encoding(false));Environment.ExitCode=success?0:1;
   }
   [STAThread] public static void Main(string[] args){
+   if(args.Length>1&&args[0]=="--model-selection-test"){try{TestModelSelection(args[1]);}catch(Exception e){File.WriteAllText(args[1],new JavaScriptSerializer().Serialize(new{success=false,error=e.ToString()}));Environment.ExitCode=1;}return;}
    if(args.Length>2&&args[0]=="--voicepack-test"){try{TestVoicePackage(args[1],args[2]);}catch(Exception e){File.WriteAllText(args[2],new JavaScriptSerializer().Serialize(new{success=false,error=e.ToString()}));Environment.ExitCode=1;}return;}
    if(args.Length>1&&args[0]=="--reference-test"){TestReferenceDefaults(args[1],args.Length>2?args[2]:null);return;}
-   try{var app=new Application(){ShutdownMode=ShutdownMode.OnMainWindowClose};bool smoke=args.Length>0 && (args[0]=="--screenshots"||args[0]=="--native-test");Studio studio=new Studio(smoke);app.MainWindow=studio.window;
+   try{var app=new Application(){ShutdownMode=ShutdownMode.OnMainWindowClose};bool smoke=args.Length>0 && (args[0]=="--screenshots"||args[0]=="--native-test"||args[0]=="--model-ui-test");Studio studio=new Studio(smoke);app.MainWindow=studio.window;
+    if(args.Length>2&&args[0]=="--model-ui-test"){studio.ModelUiTest(args[1],args[2]);return;}
     if(args.Length>0 && args[0]=="--screenshots"){studio.Screenshots(args.Length>1?args[1]:Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"screenshots"));return;}
     if(args.Length>0 && args[0]=="--native-test"){studio.NativeTest(args[1],args[2]);app.Run();return;}
     studio.Show();app.Run();
-   }catch(Exception e){if(args.Length>0 && args[0]=="--screenshots"){System.IO.Directory.CreateDirectory(args[1]);File.WriteAllText(Path.Combine(args[1],"startup-error.txt"),e.ToString());Environment.ExitCode=1;}else if(args.Length>2 && args[0]=="--native-test"){File.WriteAllText(args[2],new JavaScriptSerializer().Serialize(new{success=false,error=e.ToString()}));Environment.ExitCode=1;}else MessageBox.Show(e.ToString(),"声线工作室启动失败");}
+   }catch(Exception e){if(args.Length>0 && args[0]=="--screenshots"){System.IO.Directory.CreateDirectory(args[1]);File.WriteAllText(Path.Combine(args[1],"startup-error.txt"),e.ToString());Environment.ExitCode=1;}else if(args.Length>2 && args[0]=="--model-ui-test"){System.IO.Directory.CreateDirectory(args[2]);File.WriteAllText(Path.Combine(args[2],"report.json"),new JavaScriptSerializer().Serialize(new{success=false,error=e.ToString()}));Environment.ExitCode=1;}else if(args.Length>2 && args[0]=="--native-test"){File.WriteAllText(args[2],new JavaScriptSerializer().Serialize(new{success=false,error=e.ToString()}));Environment.ExitCode=1;}else MessageBox.Show(e.ToString(),"声线工作室启动失败");}
   }
  }
 }

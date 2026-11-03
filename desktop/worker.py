@@ -41,6 +41,20 @@ def capture(args):
     return result.stdout
 
 
+def inference_profile(request):
+    """Keep base-model inference separate from supported fine-tuned checkpoints."""
+    trained = request.get("trained") if request.get("use_trained") else None
+    if request.get("use_trained") and not trained:
+        raise ValueError("当前项目没有训练模型，请先训练，或切换到免训练合成。")
+    version = trained.get("version") if trained else request.get("quick_version") or "v5turbo"
+    supported = ("v2Pro", "v4") if trained else ("v5turbo", "v5dev")
+    if version not in supported:
+        raise ValueError("模型类型不受支持。微调模型可使用 V2Pro/V4，免训练底模可使用 V5 Turbo/V5 Dev。")
+    sampling = dict(sample_steps=32 if version == "v5dev" else 4 if version == "v5turbo" else 8,
+                    cfg_rate=1.3 if version == "v5dev" else 0.0)
+    return trained, version, sampling
+
+
 class Engine:
     def __init__(self, request):
         self.request = request
@@ -209,7 +223,7 @@ class Engine:
             raise ValueError("保留的录音中仍有空白文字。请先完成识别和校对。")
         version = self.request.get("version", "v2Pro")
         if version not in ("v2Pro", "v4"):
-            raise ValueError("训练版本请选择 V2Pro 或 V4。")
+            raise ValueError("微调训练请选择 V2Pro 或 V4。V5 Dev/Turbo 请在生成页选择免训练合成。")
         from config import pretrained_sovits_name, pretrained_gpt_name
         base_sovits = self.root / pretrained_sovits_name[version]
         base_gpt = self.root / pretrained_gpt_name[version]
@@ -332,14 +346,13 @@ class Engine:
             raise ValueError("请填写参考录音中实际说出的文字。")
         if not self.request.get("text", "").strip():
             raise ValueError("请填写需要生成的配音文字。")
+        trained, version, sampling = inference_profile(self.request)
         self.heavy()
         import numpy as np
         import soundfile as sf
         import torch
         from TTS_infer_pack.TTS import TTS, TTS_Config
         from config import pretrained_sovits_name, pretrained_gpt_name
-        trained = self.request.get("trained") if self.request.get("use_trained") else None
-        version = trained["version"] if trained else self.request.get("quick_version", "v5turbo")
         custom = dict(device="cuda" if torch.cuda.is_available() else "cpu", is_half=torch.cuda.is_available(),
                       version=version, t2s_weights_path=trained["gpt"] if trained else str(self.root / pretrained_gpt_name[version]),
                       vits_weights_path=trained["sovits"] if trained else str(self.root / pretrained_sovits_name[version]),
@@ -357,7 +370,7 @@ class Engine:
         inputs = dict(text=self.request["text"], text_lang=self.request.get("text_lang", "zh"),
                       ref_audio_path=str(reference), prompt_text=self.request["reference_text"],
                       prompt_lang=self.request.get("ref_lang", "zh"), speed_factor=float(self.request.get("speed", 1)),
-                      text_split_method="cut5", batch_size=1, seed=42, sample_steps=4 if version == "v5turbo" else 8,
+                      text_split_method="cut5", batch_size=1, seed=42, **sampling,
                       use_cuda_graph=False, use_flash_attention=False, parallel_infer=True)
         pieces, rate = [], None
         for rate, audio in tts.run(inputs):
@@ -367,7 +380,8 @@ class Engine:
         output = self.project / "exports" / (time.strftime("配音_%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:4] + ".wav")
         output.parent.mkdir(parents=True, exist_ok=True)
         sf.write(str(output), np.concatenate(pieces), rate)
-        event("result", output=str(output), duration=sf.info(output).duration)
+        event("result", output=str(output), duration=sf.info(output).duration,
+              model_version=version, **sampling)
 
 
 def main():

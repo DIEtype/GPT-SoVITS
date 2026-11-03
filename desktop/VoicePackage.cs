@@ -31,7 +31,8 @@ namespace VoiceStudio {
    if(!File.Exists(project.ReferencePath)||string.IsNullOrWhiteSpace(project.ReferenceText))throw new InvalidDataException("请先选定一段示例录音，并填写对应文字，再保存音色。");
    string suffix=System.IO.Path.GetExtension(project.ReferencePath).ToLowerInvariant();if(!new[]{".wav",".mp3",".m4a",".flac",".ogg",".aac"}.Contains(suffix))throw new InvalidDataException("示例录音格式不受支持，请选择 WAV、MP3、M4A、FLAC、OGG 或 AAC。");
    bool trained=project.UseTrained&&project.Trained!=null;
-   var manifest=new VoiceManifest(){FormatVersion=1,Name=System.IO.Path.GetFileNameWithoutExtension(target),Mode=trained?"trained":"reference",ModelVersion=trained?Convert.ToString(project.Trained["version"]):"v5turbo",ReferenceFile="reference"+suffix,ReferenceText=project.ReferenceText,RefLanguage=project.RefLanguage,TextLanguage=project.TextLanguage,Speed=project.Speed,CreatedAt=DateTimeOffset.Now.ToString("o"),Files=new List<VoiceFile>()};
+   string version=trained?Convert.ToString(project.Trained["version"]):ModelSelection.BaseVersion(project.QuickVersion);
+   var manifest=new VoiceManifest(){FormatVersion=!trained&&version=="v5dev"?2:1,Name=System.IO.Path.GetFileNameWithoutExtension(target),Mode=trained?"trained":"reference",ModelVersion=version,ReferenceFile="reference"+suffix,ReferenceText=project.ReferenceText,RefLanguage=project.RefLanguage,TextLanguage=project.TextLanguage,Speed=project.Speed,CreatedAt=DateTimeOffset.Now.ToString("o"),Files=new List<VoiceFile>()};
    var sources=new Dictionary<string,string>{{manifest.ReferenceFile,project.ReferencePath}};
    if(trained){sources["models/voice.pth"]=Convert.ToString(project.Trained["sovits"]);sources["models/speech.ckpt"]=Convert.ToString(project.Trained["gpt"]);}
    long total=0;foreach(var pair in sources){if(!File.Exists(pair.Value))throw new FileNotFoundException("音色模型或示例录音不存在，请检查项目文件。",pair.Value);if(string.Equals(Full(pair.Value),Full(target),StringComparison.OrdinalIgnoreCase))throw new InvalidDataException("音色文件不能覆盖原模型或示例录音。");total+=new FileInfo(pair.Value).Length;}
@@ -51,8 +52,9 @@ namespace VoiceStudio {
     using(var stream=new FileStream(package,FileMode.Open,FileAccess.Read,FileShare.Read))using(var zip=new ZipArchive(stream,ZipArchiveMode.Read)){
      var metadata=zip.GetEntry("voice.json");if(metadata==null||metadata.Length>1024*1024)throw new InvalidDataException("这不是受支持的声线工作室音色文件。");
      VoiceManifest manifest;using(var reader=new StreamReader(metadata.Open(),Encoding.UTF8))manifest=Serializer().Deserialize<VoiceManifest>(reader.ReadToEnd());
-     if(manifest==null||manifest.FormatVersion!=1||!(manifest.Mode=="trained"||manifest.Mode=="reference"))throw new InvalidDataException("音色文件版本不受支持。");
+     if(manifest==null||!(manifest.FormatVersion==1||manifest.FormatVersion==2)||!(manifest.Mode=="trained"||manifest.Mode=="reference"))throw new InvalidDataException("音色文件版本不受支持。");
      if(manifest.Mode=="trained"&&!new[]{"v2Pro","v4"}.Contains(manifest.ModelVersion))throw new InvalidDataException("音色模型版本不受支持。");
+     if(manifest.Mode=="reference"&&!new[]{"v5turbo","v5dev"}.Contains(manifest.ModelVersion))throw new InvalidDataException("音色文件中的合成底模不受支持。");
      if(manifest.RefLanguage<0||manifest.RefLanguage>4||manifest.TextLanguage<0||manifest.TextLanguage>4||string.IsNullOrWhiteSpace(manifest.ReferenceText))throw new InvalidDataException("音色文件的示例文字或语言设置不完整。");
      var references=new[]{"reference.wav","reference.mp3","reference.m4a","reference.flac","reference.ogg","reference.aac"};
      if(!references.Contains(manifest.ReferenceFile))throw new InvalidDataException("音色文件中的示例录音路径不受支持。");
@@ -63,7 +65,7 @@ namespace VoiceStudio {
      System.IO.Directory.CreateDirectory(library);root=System.IO.Path.Combine(Full(library),"voice_"+Guid.NewGuid().ToString("N"));System.IO.Directory.CreateDirectory(root);long copied=0;
      foreach(VoiceFile file in manifest.Files){token.ThrowIfCancellationRequested();string destination=System.IO.Path.Combine(root,file.Path.Replace('/',System.IO.Path.DirectorySeparatorChar));string absolute=Full(destination);if(!absolute.StartsWith(root+System.IO.Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase))throw new InvalidDataException("音色文件包含不安全的路径。");System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(absolute));string sha;using(var input=zip.GetEntry(file.Path).Open())using(var output=new FileStream(absolute,FileMode.CreateNew,FileAccess.Write,FileShare.None))sha=CopyAndHash(input,output,token,n=>{copied+=n;if(progress!=null)progress(100.0*copied/Math.Max(1,total));});if(!string.Equals(sha,file.Sha256,StringComparison.OrdinalIgnoreCase))throw new InvalidDataException("音色文件校验失败，文件可能已损坏。请重新选择或重新保存音色。");}
      token.ThrowIfCancellationRequested();File.WriteAllText(System.IO.Path.Combine(root,"voice.json"),Serializer().Serialize(manifest),new UTF8Encoding(false));
-     Project project=new Project(){Name=manifest.Name??"导入的音色",ReferencePath=System.IO.Path.Combine(root,manifest.ReferenceFile),ReferenceText=manifest.ReferenceText,RefLanguage=manifest.RefLanguage,TextLanguage=manifest.TextLanguage,Speed=Math.Max(0.6,Math.Min(1.6,manifest.Speed)),UseTrained=manifest.Mode=="trained"};
+     Project project=new Project(){Name=manifest.Name??"导入的音色",ReferencePath=System.IO.Path.Combine(root,manifest.ReferenceFile),ReferenceText=manifest.ReferenceText,RefLanguage=manifest.RefLanguage,TextLanguage=manifest.TextLanguage,Speed=Math.Max(0.6,Math.Min(1.6,manifest.Speed)),UseTrained=manifest.Mode=="trained",QuickVersion=manifest.Mode=="reference"?manifest.ModelVersion:"v5turbo",TrainingVersion=manifest.Mode=="trained"?manifest.ModelVersion:"v2Pro"};
      if(project.UseTrained)project.Trained=new Dictionary<string,object>{{"version",manifest.ModelVersion},{"sovits",System.IO.Path.Combine(root,"models","voice.pth")},{"gpt",System.IO.Path.Combine(root,"models","speech.ckpt")},{"run",root}};
      return project;
     }

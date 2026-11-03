@@ -24,7 +24,7 @@ using Forms = System.Windows.Forms;
 
 [assembly: AssemblyTitle("声线工作室")]
 [assembly: AssemblyDescription("GPT-SoVITS 本地桌面工作流")]
-[assembly: AssemblyVersion("1.3.0.0")]
+[assembly: AssemblyVersion("1.4.0.0")]
 
 namespace VoiceStudio {
  public class Clip : INotifyPropertyChanged {
@@ -90,7 +90,7 @@ namespace VoiceStudio {
    for(int i=0;i<5;i++){int index=i; Button b=new Button(){Content=string.Format("{0:00}    {1}",i+1,Labels[i]),HorizontalContentAlignment=HorizontalAlignment.Left,Margin=new Thickness(0,0,0,8),Padding=new Thickness(15,14,8,14),FontSize=14,BorderThickness=new Thickness(0)};b.Click+=(s,e)=>Go(index);nav.Children.Add(b);navButtons.Add(b);}
    Find<Button>("NewButton").Click+=(s,e)=>{if(busy){Notice("请先等待或停止当前任务。");return;}SyncDraft();SaveProject();project=new Project();clips=new ObservableCollection<Clip>();Go(0);};
    Find<Button>("OpenButton").Click+=(s,e)=>OpenProject();
-   Find<Button>("FolderButton").Click+=(s,e)=>{EnsureProject();OpenFolder(project.Directory);};
+   Find<Button>("FolderButton").Click+=(s,e)=>ManageProjectFiles();
    Find<Button>("SettingsButton").Click+=(s,e)=>ChooseEngine();
    cancel.Click+=async(s,e)=>{if(fileCancellation!=null){cancelled=true;fileCancellation.Cancel();status.Text="正在停止当前任务…";return;}if(running==null)return;cancelled=true;status.Text="正在停止当前任务…";await Task.Run(()=>KillOwnProcess());};
    window.Closing+=async(s,e)=>{if(closingAfterCancel){e.Cancel=true;return;}if(busy && MessageBox.Show(window,"关闭窗口会停止当前任务。确认关闭？","声线工作室",MessageBoxButton.YesNo,MessageBoxImage.Question)!=MessageBoxResult.Yes){e.Cancel=true;return;}if(fileCancellation!=null){e.Cancel=true;closingAfterCancel=true;cancelled=true;fileCancellation.Cancel();while(busy)await Task.Delay(100);closingAfterCancel=false;window.Close();return;}cancelled=true;SyncDraft();SaveProject();KillOwnProcess();player.Close();};
@@ -123,6 +123,11 @@ namespace VoiceStudio {
   void SaveProject(){if(smoke || string.IsNullOrEmpty(project.Directory))return;try{project.Clips=clips.ToList();AtomicWrite(Path.Combine(project.Directory,"project.json"),json.Serialize(project));}catch(Exception e){Log("项目保存失败："+e.Message);}}
   void LoadProject(string path){project=json.Deserialize<Project>(File.ReadAllText(path,Encoding.UTF8));if(project==null)throw new Exception("项目文件为空");project.Directory=Path.GetDirectoryName(Path.GetFullPath(path));if(project.Sources==null)project.Sources=new List<string>();clips=new ObservableCollection<Clip>(project.Clips??new List<Clip>());page=-1;}
   void OpenProject(){if(busy){Notice("请先等待或停止当前任务。");return;}OpenFileDialog d=new OpenFileDialog(){Title="打开声音项目",Filter="声音项目 (project.json)|project.json|JSON 文件|*.json"};if(d.ShowDialog(window)!=true)return;try{SyncDraft();SaveProject();LoadProject(d.FileName);Settings();Go(project.Trained!=null && project.UseTrained?4:clips.Count>0?2:0);}catch(Exception e){Notice("项目读取失败："+e.Message);}}
+  void ManageProjectFiles(){
+   if(busy){Notice("请先等待或停止当前任务，再管理项目文件。");return;}
+   try{SyncDraft();EnsureProject();SaveProject();player.Close();var manager=new ProjectManagerWindow(window,project);if(manager.Window.ShowDialog()==true&&manager.SelectedModel!=null){project.Trained=manager.SelectedModel;project.UseTrained=true;page=-1;Go(4);SaveProject();status.Text="已切换："+ProjectFiles.Describe(project.Trained)+"。可沿用文稿和参考录音生成对比。";}}
+   catch(Exception error){Notice("无法管理项目文件："+error.Message);}
+  }
   void Notice(string message){if(smoke){errorMessage=message;Log(message);return;}MessageBox.Show(window,message,"声线工作室",MessageBoxButton.OK,MessageBoxImage.Information);}
   void Log(string text){if(string.IsNullOrEmpty(text))return;if(logs.Text.Length>140000)logs.Text=logs.Text.Substring(logs.Text.Length-90000);logs.AppendText(text+Environment.NewLine);logs.ScrollToEnd();}
   static Brush Color(string value){return (Brush)new BrushConverter().ConvertFromString(value);}
@@ -209,7 +214,7 @@ namespace VoiceStudio {
    if(!string.IsNullOrEmpty(project.LastOutput))host.Children.Add(Text("最近保存："+project.LastOutput,11,"#167B73"));
    GenerationHelp();
   }
-  void GenerationHelp(){bool trained=voiceMode.SelectedIndex==1;quickVersion.IsEnabled=!trained;if(trained){bool fromTraining=clips.Any(c=>string.Equals(c.Path,referenceBox.Text,StringComparison.OrdinalIgnoreCase));subtitle.Text=fromTraining && !string.IsNullOrWhiteSpace(referenceText.Text)?"已带入训练片段和文字，填写右侧新文稿即可。示例录音影响本次音色细节、语气和节奏。":"使用已微调的声音；可以复用训练片段作为示例录音，无需重新录制。";modelHelp.Text="当前使用 "+ModelSelection.Name(Convert.ToString(project.Trained["version"]))+" 微调模型。V5 底模选择仅用于免训练合成，不会转换已有模型。";}else{subtitle.Text="选择示例录音并填写原话，再输入新文稿。这个过程直接合成，不会训练或修改模型。";modelHelp.Text=quickVersion.SelectedIndex==1?"V5 Dev：32 步合成，速度较慢，面向研究和对比试听；使用参考录音，不需要训练。":"V5 Turbo：4 步快速合成；使用参考录音，不需要训练。";}}
+  void GenerationHelp(){bool trained=voiceMode.SelectedIndex==1;quickVersion.IsEnabled=!trained;if(trained){bool fromTraining=clips.Any(c=>string.Equals(c.Path,referenceBox.Text,StringComparison.OrdinalIgnoreCase));subtitle.Text=fromTraining && !string.IsNullOrWhiteSpace(referenceText.Text)?"已带入训练片段和文字，填写右侧新文稿即可。示例录音影响本次音色细节、语气和节奏。":"使用已微调的声音；可以复用训练片段作为示例录音，无需重新录制。";modelHelp.Text="当前："+ProjectFiles.Describe(project.Trained)+"。可在顶部“项目文件管理”切换 Epoch。";}else{subtitle.Text="选择示例录音并填写原话，再输入新文稿。这个过程直接合成，不会训练或修改模型。";modelHelp.Text=quickVersion.SelectedIndex==1?"V5 Dev：32 步合成，速度较慢，面向研究和对比试听；使用参考录音，不需要训练。":"V5 Turbo：4 步快速合成；使用参考录音，不需要训练。";}}
   void PickReference(){OpenFileDialog d=new OpenFileDialog(){Title="选择 3～10 秒的示例录音",Filter="录音文件|*.wav;*.mp3;*.m4a;*.flac;*.ogg;*.aac|所有文件|*.*"};if(d.ShowDialog(window)==true){Clip known=clips.FirstOrDefault(c=>string.Equals(c.Path,d.FileName,StringComparison.OrdinalIgnoreCase));if(!string.Equals(referenceBox.Text,d.FileName,StringComparison.OrdinalIgnoreCase)){referenceText.Text=known==null?"":known.Text??"";}referenceBox.Text=d.FileName;referenceBox.ToolTip=d.FileName;SyncDraft();EnsureProject();SaveProject();GenerationHelp();}}
   void PickTrainingReference(){
    var choices=ReferenceDefaults.Eligible(clips);if(choices.Count==0){Notice("当前没有带文字、时长在 3～10 秒之间的保留片段。可以浏览其他录音，或先在校对页整理一条合适的片段。");return;}
@@ -296,6 +301,7 @@ namespace VoiceStudio {
    Go(3);checks["training_choice_survives_navigation"]=trainVersion.SelectedIndex==1;RenderCurrentPage(Path.Combine(folder,"training.png"));
    File.WriteAllText(Path.Combine(folder,"report.json"),json.Serialize(new{success=checks.Values.All(v=>v),checks=checks}),new UTF8Encoding(false));Environment.ExitCode=checks.Values.All(v=>v)?0:1;window.Close();
   }
+  void FilesUiTest(string projectFile,string folder){LoadProject(projectFile);Go(4);window.WindowStartupLocation=WindowStartupLocation.Manual;window.Left=-5000;window.Top=-5000;window.ShowInTaskbar=false;window.Show();new ProjectManagerWindow(window,project).RenderForTest(folder);window.Close();}
   static void TestModelSelection(string report){
    var serializer=new JavaScriptSerializer(){MaxJsonLength=32*1024*1024};var checks=new Dictionary<string,bool>();string dir=Path.Combine(Path.GetDirectoryName(Path.GetFullPath(report)),"model_fixtures");System.IO.Directory.CreateDirectory(dir);
    Project old=serializer.Deserialize<Project>("{\"Name\":\"old\",\"UseTrained\":false}");checks["old_project_defaults_to_turbo"]=Convert.ToString(ModelSelection.Request(old)["quick_version"])=="v5turbo";
@@ -337,15 +343,17 @@ namespace VoiceStudio {
    bool success=checks.Values.All(v=>v);File.WriteAllText(report,serializer.Serialize(new{success=success,checks=checks,package_bytes=new FileInfo(package).Length,package=package}),new UTF8Encoding(false));Environment.ExitCode=success?0:1;
   }
   [STAThread] public static void Main(string[] args){
+   if(args.Length>1&&(args[0]=="--project-files-test"||args[0]=="--project-links-test"||args[0]=="--project-recycle-test")){try{if(args[0]=="--project-files-test")ProjectFilesTests.Run(args[1],args.Length>2?args[2]:null);else if(args[0]=="--project-links-test")ProjectFilesTests.Links(args[1]);else ProjectFilesTests.RecycleFixture(args[1]);}catch(Exception error){Directory.CreateDirectory(args[1]);File.WriteAllText(Path.Combine(args[1],"test-error.txt"),error.ToString());Environment.ExitCode=1;}return;}
    if(args.Length>1&&args[0]=="--model-selection-test"){try{TestModelSelection(args[1]);}catch(Exception e){File.WriteAllText(args[1],new JavaScriptSerializer().Serialize(new{success=false,error=e.ToString()}));Environment.ExitCode=1;}return;}
    if(args.Length>2&&args[0]=="--voicepack-test"){try{TestVoicePackage(args[1],args[2]);}catch(Exception e){File.WriteAllText(args[2],new JavaScriptSerializer().Serialize(new{success=false,error=e.ToString()}));Environment.ExitCode=1;}return;}
    if(args.Length>1&&args[0]=="--reference-test"){TestReferenceDefaults(args[1],args.Length>2?args[2]:null);return;}
-   try{var app=new Application(){ShutdownMode=ShutdownMode.OnMainWindowClose};bool smoke=args.Length>0 && (args[0]=="--screenshots"||args[0]=="--native-test"||args[0]=="--model-ui-test");Studio studio=new Studio(smoke);app.MainWindow=studio.window;
+   try{var app=new Application(){ShutdownMode=ShutdownMode.OnMainWindowClose};bool smoke=args.Length>0 && (args[0]=="--screenshots"||args[0]=="--native-test"||args[0]=="--model-ui-test"||args[0]=="--files-ui-test");Studio studio=new Studio(smoke);app.MainWindow=studio.window;
+    if(args.Length>2&&args[0]=="--files-ui-test"){studio.FilesUiTest(args[1],args[2]);return;}
     if(args.Length>2&&args[0]=="--model-ui-test"){studio.ModelUiTest(args[1],args[2]);return;}
     if(args.Length>0 && args[0]=="--screenshots"){studio.Screenshots(args.Length>1?args[1]:Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"screenshots"));return;}
     if(args.Length>0 && args[0]=="--native-test"){studio.NativeTest(args[1],args[2]);app.Run();return;}
     studio.Show();app.Run();
-   }catch(Exception e){if(args.Length>0 && args[0]=="--screenshots"){System.IO.Directory.CreateDirectory(args[1]);File.WriteAllText(Path.Combine(args[1],"startup-error.txt"),e.ToString());Environment.ExitCode=1;}else if(args.Length>2 && args[0]=="--model-ui-test"){System.IO.Directory.CreateDirectory(args[2]);File.WriteAllText(Path.Combine(args[2],"report.json"),new JavaScriptSerializer().Serialize(new{success=false,error=e.ToString()}));Environment.ExitCode=1;}else if(args.Length>2 && args[0]=="--native-test"){File.WriteAllText(args[2],new JavaScriptSerializer().Serialize(new{success=false,error=e.ToString()}));Environment.ExitCode=1;}else MessageBox.Show(e.ToString(),"声线工作室启动失败");}
+   }catch(Exception e){if(args.Length>0 && args[0]=="--screenshots"){System.IO.Directory.CreateDirectory(args[1]);File.WriteAllText(Path.Combine(args[1],"startup-error.txt"),e.ToString());Environment.ExitCode=1;}else if(args.Length>2 && (args[0]=="--model-ui-test"||args[0]=="--files-ui-test")){System.IO.Directory.CreateDirectory(args[2]);File.WriteAllText(Path.Combine(args[2],"report.json"),new JavaScriptSerializer().Serialize(new{success=false,error=e.ToString()}));Environment.ExitCode=1;}else if(args.Length>2 && args[0]=="--native-test"){File.WriteAllText(args[2],new JavaScriptSerializer().Serialize(new{success=false,error=e.ToString()}));Environment.ExitCode=1;}else MessageBox.Show(e.ToString(),"声线工作室启动失败");}
   }
  }
 }

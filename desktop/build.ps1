@@ -51,6 +51,9 @@ $taskArgs = @(
 $taskArgs += $taskReferences | ForEach-Object { '/reference:' + $_ }
 $taskArgs += Join-Path $taskRoot 'VoiceStudio.cs'
 $taskArgs += Join-Path $taskRoot 'VoicePackage.cs'
+$taskArgs += Join-Path $taskRoot 'ProjectFiles.cs'
+$taskArgs += Join-Path $taskRoot 'ProjectManagerWindow.cs'
+$taskArgs += Join-Path $taskRoot 'ProjectFilesTests.cs'
 & $taskCompiler @taskArgs
 if ($LASTEXITCODE -ne 0) { throw 'C# build failed.' }
 
